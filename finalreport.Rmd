@@ -1,0 +1,472 @@
+---
+title: "Data Science Capstone Project: NLP model"
+author: "Miao YU"
+date: "2014/10/10"
+output: pdf_document
+---
+
+# Introduction
+
+Portable office actually means the works done on the cellphones or tablets and we need input system to saving our time on typing on those device. So a smart and efficient keyboard is required. The core of this input system is a natural language processing model. This report is focused on this, covering  from the very beginning, namely data collection, to the final model. The first parts came from the milestone report with a revision.
+
+# Data Acquisition and Cleaning
+
+The data were downloaded from the course website (from [HC Corpora](www.corpora.heliohost.org)) and unzipped to extract the English database as a corpus. Three text documents from the twitter, blog and news were found with each line standing for a document.
+
+## Data Pre-Summary
+
+After scan the three documents with `bash`, the basic summary of the data set is shown as follows:
+
+```{r axis = T,echo = F,cache=TRUE}
+library(knitr)
+twitter <- system('wc -lwm data/final/en_US/en_US.twitter.txt',intern = T)
+news <- system('wc -lwm data/final/en_US/en_US.news.txt',intern = T)
+blogs <- system('wc -lwm data/final/en_US/en_US.blogs.txt',intern = T)
+ten <- as.numeric(grep('[[:digit:]]', unlist(strsplit(twitter," ")), value = T))
+nen <- as.numeric(grep('[[:digit:]]', unlist(strsplit(news," ")), value = T))
+ben <- as.numeric(grep('[[:digit:]]', unlist(strsplit(blogs," ")), value = T))
+en <- as.data.frame(rbind(ten,nen,ben))
+rownames(en) <- c('twitter','news','blogs')
+colnames(en) <- c('line counts','word counts','document size')
+kable(en, align='c', caption = "Summary of the datasets")
+```
+
+I found twitter is short(of course less than 140 words) with a lot of informal characters and less grammar, which means more noise; news is written in a formal manner but the topics is focused; blog's pattern is between the twitter and news with less noise and more topics; the average length of each lines in the three database: blog > news > twitter, which means blog is the longest document class and longer document will help to build a better model for prediction in certain context.
+
+So, the blog data will be good for us to build a model if those three document is too large to be loaded for exploring. However, using sampling will ease the burden on the calculation and finally I sampled 30,000 20,000 and 10,000 lines with seed from the blogs, news and twitter database for exploring and the left data will be sampled to make the test data sets.
+
+```{r echo = F,cache=TRUE,warning=FALSE,message=FALSE}
+library(tm)
+library(stringi)
+ent <- readLines('data/final/en_US/en_US.twitter.txt', encoding = 'UTF-8')
+enn <- readLines('data/final/en_US/en_US.news.txt', encoding = 'UTF-8')
+enb <- readLines('data/final/en_US/en_US.blogs.txt', encoding = 'UTF-8')
+set.seed(1)
+index <- sample(1:length(ent),10000)
+subenttr <- ent[index]
+subentts <- ent[-index]
+subentts <- subentts[index]
+set.seed(1)
+index <- sample(1:length(enn),20000)
+subenntr <- enn[index]
+subennts <- enn[-index]
+set.seed(1)
+subennts <- subennts[sample(1:length(subennts),10000)]
+set.seed(1)
+index <- sample(1:length(enb),30000)
+subenbtr <- enb[index]
+subenbts <- enb[-index]
+set.seed(1)
+subenbts <- subenbts[sample(1:length(subenbts),10000)]
+suben <- c(subenttr,subenntr,subenbtr)
+subentest <- c(subentts,subennts,subenbts)
+rm(enb,enn,ent,subenbtr,subenntr,subenttr,subenbts,subennts,subentts)
+```
+
+## Tokenization
+
+```{r echo=F,cache=TRUE}
+# get the ASCII charact
+ascllen <- stri_enc_toascii(suben)
+ascllen <- stri_replace_all_regex(ascllen,'\032','')
+en <- Corpus(VectorSource(ascllen))
+# change the capital characters to lower case
+enall <- tm_map(en, content_transformer(tolower))
+# remove the punctuation
+enall <- tm_map(enall, removePunctuation)
+# remove the numbers
+enall <- tm_map(enall, removeNumbers)
+# remove the stop words
+enall <- tm_map(enall, removeWords, stopwords("english"))
+# stemming the words
+enall <- tm_map(enall, stemDocument,language = ("english"))
+# remove the space more than one
+enall <- tm_map(enall, stripWhitespace)
+
+# save(enall,suben,file = 'data/ei.RData')
+# save(subentest,file = 'data/test.RData')
+# if you want to limited the words in a dictionary, you may get by the following codes
+# url <- 'http://www-personal.umich.edu/~jlawler/wordlist'
+# dic <- download.file(url,'data/dic.txt', method = 'curl')
+# dic <- readLines('data/dic.txt', encoding = 'UTF-8')
+```
+
+The whole tokenization is aiming at removing meaningless characters and the words with low frequency to avoid overfit in the corpus. The final corpus will show the words or terms with a high frequency which will be helpful for exploring the relationship between the words and building a meaningful statistical model.
+
+So, I extracted 1)the ASCII characters, 2)changed the capital characters to lower case, 3)removed the punctuation, 4)numbers and 5)stop words and 6)stemmed the left words to get the corpus. The dirty words were not removed because I decided to remove them from the model predicted words from a web [dictionary](https://raw.githubusercontent.com/shutterstock/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en).
+
+# Exploratory analysis
+
+```{r,cache=TRUE,echo=FALSE,warning=FALSE,message=FALSE}
+options(mc.cores=1)
+# get the unigram corpus control
+ctrl <- list(tokenize = words, bounds = list(global = c(10,Inf)))
+# get the bigram corpus control
+BigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 2))}
+ctrl2 <- list(tokenize = BigramTokenizer, bounds = list(global = c(10,Inf)))
+# get the trigram corpus control
+TrigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 3, max = 3))}
+ctrl3 <- list(tokenize = TrigramTokenizer, bounds = list(global = c(10,Inf)))
+# explore 4-gram control if you want to
+# TeragramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 4, max = 4))}
+# ctrl4 <- list(tokenize = TeragramTokenizer, bounds = list(global = c(10,Inf)))
+# get the 1 to 3 gram corpus control
+Tokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 1, max = 3))}
+ctrl0 <- list(tokenize = Tokenizer, bounds = list(global = c(10,Inf)))
+
+# get the corpus
+en.tdm <- TermDocumentMatrix(enall,control = ctrl)
+en.bitdm <- TermDocumentMatrix(enall,control = ctrl2)
+en.tritdm <- TermDocumentMatrix(enall,control = ctrl3)
+# en.teratdm <- TermDocumentMatrix(enall,control = ctrl4)
+en.tdm0 <- TermDocumentMatrix(enall,control = ctrl0)
+# get the freqency of the corpus
+library(slam)
+freq <- rowapply_simple_triplet_matrix(en.tdm,sum)
+freqbi <- rowapply_simple_triplet_matrix(en.bitdm,sum)
+freqtri <- rowapply_simple_triplet_matrix(en.tritdm,sum)
+# freqtera <- rowapply_simple_triplet_matrix(en.teratdm,sum)
+freq0 <- rowapply_simple_triplet_matrix(en.tdm0,sum)
+
+# plot the data
+par(oma=c(0,0,3,0),mfrow = c(2,2), mar=c(2,2,2,2))
+hist(log(freq), breaks = 50, main = 'uni gram corpus', xlab='the log value of the Frequency', ylab='')
+hist(log(freqbi), breaks = 50, main = 'bi gram corpus', xlab='the log value of the Frequency', ylab='')
+hist(log(freqtri), breaks = 50, main = 'tri gram corpus', xlab='the log value of the Frequency', ylab='')
+library(wordcloud)
+wordcloud(names(freq0), freq0, min.freq = 400)
+title("Histogram of term frequency and word cloud of all of the three corpus",outer=T)
+```
+
+I choose a n-gram model scheme for the exploratory analysis. I extracted n-gram corpus with the help of `RWeka` package. The uni-gram terms corpus has `r length(en.tdm$dimnames$Terms)` words, the bi-gram corpus has `r length(en.bitdm$dimnames$Terms)` terms and the tri-gram corpus has `r length(en.tritdm$dimnames$Terms)` terms.To decrease the spares of the term frequency, I removed the terms occurred less than ten times in the whole documents.  Then I explored three corpus(uni-gram, bi-gram and tri-gram) and made a histogram to show the distribution of the terms in them. 
+
+As shown in Figure 1, the logged frequencies in all of the three corpus were still skewed to the left, which mean the sparse of the terms data. So it will be hard to build a good global regression model but local model would be OK. 
+
+Also I found only 8063 words occurred more than ten times in the sampled documents compared with nearly 70 thousand words in an online [dictionary](http://www-personal.umich.edu/~jlawler/wordlist), which mean focused on little words would work in most of the prediction. The word cloud showed the terms occurred more than 400 and those terms would be good to build a classification filter models before using a n-gram model to speed up the whole prediction.
+
+From the exploratory analysis I summaries the following items to build the model:
+
+- tha data obeied Zipf’s law: human language has many low frequency word types and relatively few high frequency word types.
+- using current laptop to process the whole data set will be time-consuming
+- each data set will be overfit on the most common words while underfitted on the least common words
+- a pre-classification of the words before will be helpful to narrow down the scales
+- using different sources of documents will be helpful for a supervised learning while a PCA analysis of the documents will also be helpful for a unsupervised learning to group the source
+
+# Modeling
+
+## Pre-classification
+
+```{r eval=FALSE,echo=FALSE }
+# get the most frequency words occured more than 1000 times in 60000 samples
+ctrl <- list(tokenize = words, bounds = list(global = c(1000,Inf)))
+enall.dtm <- DocumentTermMatrix(enall, control = ctrl)
+classvec <- factor(c(rep('twitter',10000),rep('news',20000),rep('blogs',30000)))
+datac <- data.frame(cbind(as.matrix(enall.dtm),classvec))
+set.seed(1)
+index <- sample(1:60000,40000)
+datatrain <- datac[index,]
+datatest <- datac[-index,]
+# build a classification tree for pre class the data
+library(party)
+ct <- ctree(classvec ~ ., data=datatrain)
+summary(ct)
+classpre <- predict(ct,datatest)
+table(classpre,datatest$classvec)
+```
+
+I sampled the origin train data to get a corpus without capital characters, punctuation, number and stop words. I didn't stem the words because I found stemming would make the prediction unclear. The most frequency words were used to classify the original data into different sources. Here I use news, blogs and twitters as three different sources. However, only three sources made the model building very slow. So I used the most frequency 115 words occurred more than 1000 times in 60000 samples were used to class the sentences by a support vector machines. Results were bad and it seemed all of the sentences will be grouped into the twitter group. This is a proof for that twitter will cover most kinds of words. I dropped this idea but I think classification will be helpful to get many sub-models to speed up the whole models. Maybe some unsupervised learning models will be useful to get some topic groups for the classification and local prediction under a topic might be better for global prediction.
+
+## N-grams Extraction
+
+```{r cache=TRUE, echo=FALSE}
+# read in the data
+ent <- readLines('data/final/en_US/en_US.twitter.txt', encoding = 'UTF-8')
+enn <- readLines('data/final/en_US/en_US.news.txt', encoding = 'UTF-8')
+enb <- readLines('data/final/en_US/en_US.blogs.txt', encoding = 'UTF-8')
+# get 200000 from twiiter
+set.seed(1)
+index <- sample(1:length(ent),200000)
+subenttr <- ent[index]
+subentts <- ent[-index]
+set.seed(1)
+index <- sample(1:200000,10000)
+subentts <- subentts[index]
+# get 400000 from news
+set.seed(1)
+index <- sample(1:length(enn),400000)
+subenntr <- enn[index]
+subennts <- enn[-index]
+set.seed(1)
+index <- sample(1:400000,10000)
+subennts <- subennts[index]
+# get 600000 from blog
+set.seed(1)
+index <- sample(1:length(enb),600000)
+subenbtr <- enb[index]
+subenbts <- enb[-index]
+set.seed(1)
+index <- sample(1:600000,10000)
+subenbts <- subenbts[index]
+# clean the data
+ascllenttr <- stri_enc_toascii(subenttr)
+ascllenttr <- stri_replace_all_regex(ascllenttr,'\032','')
+ascllentts <- stri_enc_toascii(subentts)
+ascllentts <- stri_replace_all_regex(ascllentts,'\032','')
+
+ascllenntr <- stri_enc_toascii(subenntr)
+ascllenntr <- stri_replace_all_regex(ascllenntr,'\032','')
+ascllennts <- stri_enc_toascii(subennts)
+ascllennts <- stri_replace_all_regex(ascllennts,'\032','')
+
+ascllenbtr <- stri_enc_toascii(subenbtr)
+ascllenbtr <- stri_replace_all_regex(ascllenbtr,'\032','')
+ascllenbts <- stri_enc_toascii(subenbts)
+ascllenbts <- stri_replace_all_regex(ascllenbts,'\032','')
+
+train <- VectorSource(c(ascllenttr,ascllenntr,ascllenbtr))
+test <- VectorSource(c(ascllentts,ascllennts,ascllenbts))
+en <- Corpus(train)
+entest <- Corpus(test)
+
+rm(enb,enn,ent,subenbtr,subenntr,subenttr,subenbts,subennts,subentts)
+
+save(en,entest,file='data/en.RData')
+load('data/en.RData')
+
+enall <- tm_map(en, content_transformer(tolower))
+enall <- tm_map(enall, removePunctuation)
+enall <- tm_map(enall, removeNumbers)
+enall <- tm_map(enall, removeWords, stopwords("english"))
+# enall <- tm_map(enall, stemDocument,language = ("english"))
+enall <- tm_map(enall, stripWhitespace)
+
+# extract the n-gram for modeling
+
+ctrl <- list(tokenize = words, bounds = list(global = c(6,Inf)))
+options(mc.cores=1)
+BigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 2))}
+ctrl2 <- list(tokenize = BigramTokenizer, bounds = list(global = c(6,Inf)))
+TrigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 3, max = 3))}
+ctrl3 <- list(tokenize = TrigramTokenizer, bounds = list(global = c(6,Inf)))
+en.tdm <- TermDocumentMatrix(enall,control = ctrl)
+en.bitdm <- TermDocumentMatrix(enall,control = ctrl2)
+en.tritdm <- TermDocumentMatrix(enall,control = ctrl3)
+library(slam)
+freq <- rowapply_simple_triplet_matrix(en.tdm,sum)
+freqbi <- rowapply_simple_triplet_matrix(en.bitdm,sum)
+freqtri <- rowapply_simple_triplet_matrix(en.tritdm,sum)
+firstname <- sapply(strsplit(names(freqbi), ' '), function(a) a[1])
+secname <- sapply(strsplit(names(freqbi), ' '), function(a) a[2])
+firsttriname <- sapply(strsplit(names(freqtri), ' '),function(a) a[1])
+sectriname <- sapply(strsplit(names(freqtri), ' '),function(a) a[2])
+tritriname <- sapply(strsplit(names(freqtri), ' '),function(a) a[3])
+# length(words1 <- unique(names(freq)))
+# length(words2 <- unique(c(secname,firstname)))
+# length(words3 <- unique(c(tritriname,sectriname,firsttriname)))
+# length(finalwords3 <- intersect(intersect(words1,words2),words3))
+# length(finalwords2 <- intersect(words1,words2))
+
+# get the final n-gram dataframe
+
+unigramDF <- data.frame(names(freq),freq,stringsAsFactors = F)
+bigramDF <- data.frame(names(freqbi),freqbi,firstname,secname,stringsAsFactors = F)
+trigramDF <- data.frame(names(freqtri),freqtri,paste(firsttriname,sectriname),tritriname,stringsAsFactors = F)
+names(unigramDF) <- c('unigram','freq')
+names(bigramDF) <- c('bigram','freq','unigram','name')
+names(trigramDF) <- c('trigram','freq','bigram','name')
+save(unigramDF,bigramDF,trigramDF,file = 'data/ngram.RData')
+load('data/ngram.RData')
+```
+
+The extraction of n-gram is the base of the model. After I get the n-gram corpus with `RWeka` package, the term-document matrix were used to get the counts for each n-grams by a row sum. It will really take a long time to get the n-gram(uni-gram, bi-gram and tri-gram in this study). To speed up I only extract the terms with a at least occurrences of six times in the whole corpus. The idea is that low frequency words will cause overfit for certain corpus and increase the burden on the calculation or corpus building; more data at certain frequency threshold will subset the meaningful terms from noisy terms. For example, "aaaaaaaaaaa" and "capstone" might both occur two times in a small corpus. When we get a ten times bigger corpus, "aaaaaaaaaaa" might still occur two or at most twenty times. But a much more meaningful word such as "capstone" might at least occur twenty times. Considering a bigger corpus will induce more unigrams, the threshold might set lower than ten. 
+
+In this study, I explored the data with 60,000 sentences but my final corpus is twenty times bigger than exploratory analysis and I only use a threshold of six to get a smaller but much meaningful corpus for next step modeling. For different corpus, the threshold is actually a parameter to be optimized. On my PC, less than five will make the n-gram extraction very slow and six was my last choice and I got a uni-gram with 81,456 words, bi-gram with 413,605 words and tri-gram with 49,670 words. Using a higher probability of the last words in terms will predict next words for certain sentence and this is the core of N-gram model.
+
+## Backoff and Smoothing
+
+The n-gram model worked well if the terms were huge enough to cover any cases. However, such model will cost a lot of time training the data. Another way is just using a back-off model to change n-gram model into (n-1)-gram model. The simplest back-off model will first get the probability of every (n-1) terms, order them and show the first few words as prediction. When no words were shown, a (n-1)-gram model will be used until uni-gram model, which will show the most common words in the corpus. A simple workflow is shown in the following picture.
+
+![workflow](https://raw.githubusercontent.com/yufree/nlpshiny/master/www/ngram.jpg)
+
+However, such case that there were only one terms in a tri-gram while many terms in a bi-gram for certain words will make a simple back-off model hard to distribute the probability to the candidates. A common way is that smoothing the counts on the n-gram. Good-Turing Estimate show a good idea to get the probability space for (n-1)-gram model. The probability of unseen n-gram p is calculated by
+
+$$p = \frac{N_1}{N}$$
+
+N is the total number of terms observed in the corpus. This probability could be saved by a discount on the observed terms' counts. I use an absolute discounting on each counts based on Ney et al.'s study:
+
+$$D = \frac{n_1}{n_1+2*n_2}$$
+
+$n_1$ and $n_2$ were terms occurred exactly once and twice. 
+
+After I get the free space for the (n-1)-gram model, the Kneser-Ney Smoothing were employed to get the probability with a combination of (n-1)-gram. I actually combined a Kneser-Ney Smoothing with a back-off model: When the model could find terms in the tri-gram, a tri-gram Kneser-Ney model will be used. While the model can't find a hit in tri-gram, a bi-gram Kneser-Ney Smoothing were run. Those two Kneser-Ney Smoothing have different discountings. The detailed formula could be found in Körner‘s paper in the reference and the code for the whole process is shown in the RMD document's code chunk.
+
+```{r echo = FALSE}
+# predictKN2 were used for bi-gram models when the model need a back off
+# unigram, bigram and trigram were three dataframe contained terms
+# maxResults is the numbers of next words to show default 3
+predictKN2 <- function(input,D2,P,subbi,cw2,nw2,unigram,bigram,maxResults = 3){
+        # kick off to unigram if no bigram
+        if(nw2 == 0) {
+                return(head(unigram[order(unigram$freq,decreasing = T),1],maxResults))
+        }
+        cp <- unique(subbi$name)
+        pkn <- rep(NA,length(cp))
+        for(i in 1:length(cp)){
+                # get nw3 cw3 for smooth
+                nw3 <- sum(grepl(cp[i],bigram$name))
+                cw3 <- subbi[subbi$name == cp[i],2]
+                pkn[i] <- max((cw3-D2),0)/cw2 + P*nw3
+        }
+        predictWord <- data.frame(next_word=cp,probability=pkn,stringsAsFactors=FALSE)
+        predictWord <- predictWord[order(predictWord$probability,decreasing = T),]
+        final <- predictWord$next_word[!is.na(predictWord$next_word)]
+        final <- final[1:maxResults]
+        final <- unique(final)
+        final <- setdiff(final,badwords)
+        final <- final[grepl('[[:alpha:]]',final)]        
+        return(final)
+}
+# this is the main function to predict the next words 
+# based on Kneser-Ney Smoothing n-gram models
+predictKN <- function(input,badwords,unigramDF,bigramDF,trigramDF,maxResults = 3){
+        # get the freq of freq of n-gram to get D for smooth
+        uni.freqfreq <- data.frame(uni=table(unigramDF$freq))
+        bi.freqfreq <- data.frame(Bi=table(bigramDF$freq))
+        tri.freqfreq <- data.frame(Tri=table(trigramDF$freq))
+        # get D by Ney et al. by the total number of n-grams
+        # occurring exactly once (n1) and twice (n2)
+        D1 <- uni.freqfreq[1,2]/(uni.freqfreq[1,2]+2*uni.freqfreq[2,2])
+        D2 <- bi.freqfreq[1,2]/(bi.freqfreq[1,2]+2*bi.freqfreq[2,2])
+        D3 <- tri.freqfreq[1,2]/(tri.freqfreq[1,2]+2*tri.freqfreq[1,2])
+        # process the words
+        sw <- stopwords(kind = "en")
+        input <- removePunctuation(input)
+        input <- removeNumbers(input)
+        input <- rev(unlist(strsplit(input," ")))
+        input <- setdiff(input,sw)
+        input <- input[grepl('[[:alpha:]]',input)]
+        input <- paste(input[2],input[1],sep = ' ')
+        input <- tolower(input)
+        if(input == ''|input == "na na") return('WARNING: Just input something')
+        input2 <- unlist(strsplit(input," "))[2]
+        # get c(w1w2.), n(w1w2.) and n(.w2.) from trigram
+        seekcw1w2<-grepl(paste0("^",input,"$"),trigramDF$bigram)
+        subtri<-trigramDF[seekcw1w2,]
+        cw1w2 <- sum(subtri$freq)
+        nw1w2 <- sum(seekcw1w2)
+        seekW2<-grepl(paste0(input2,"$"),trigramDF$bigram)
+        W2 <- sum(seekW2)
+        p3 <- D3*nw1w2/cw1w2
+        # get c(w2.), n(w2.) and n(..) from bigram
+        seekcw2 <- grepl(input2,bigramDF$unigram)
+        subbi <- bigramDF[seekcw2,]
+        cw2 <- sum(subbi$freq)
+        nw2 <- sum(seekcw2)
+        nw <- nrow(bigramDF)
+        p2 <- D3*nw2/cw2/nw
+        p1 <- D2*nw2/cw2/nw
+        if(cw1w2 == 0){
+                # back off to 2-gram model
+                return(predictKN2(input2,D2,p1,subbi,cw2,nw2,unigramDF,bigramDF,
+                                  maxResults = maxResults))
+        }
+        cp <- unique(subbi$name)
+        pkn <- rep(NA,length(cp))
+        for(i in 1:length(cp)){
+                # get nw3 nw2w3 and cw1w2w3 for smooth
+                nw3 <- sum(grepl(cp[i],bigramDF$name))
+                nw2w3 <- sum(grepl(paste0(input2,' ',cp[i],'$'),trigramDF$trigram))
+                cw1w2w3 <- subtri[subtri$name == cp[i],2]
+                pkn[i] <- max((cw1w2w3-D3),0)/cw1w2 + p3*(max((nw2w3-D3),0)/W2+ p2*nw3)
+        }
+        predictWord <- data.frame(next_word=cp,probability=pkn,stringsAsFactors=FALSE)
+        predictWord <- predictWord[order(predictWord$probability,decreasing = T),]
+        final <- predictWord$next_word[!is.na(predictWord$next_word)]
+        final <- final[1:maxResults]
+        final <- unique(final)
+        final <- setdiff(final,badwords)
+        final <- final[grepl('[[:alpha:]]',final)]        
+        return(final)
+}
+```
+
+## Stupid Backoff Implementation
+
+The model above were slow to show predicted words and I speed up the model with less code and a relative small loss of prediction accuracy. The core of the code called Stupid Backoff implementation, which is often used in web-based corpus. The core of this backoff implementation is that using a fixed discount for (n-1)-gram's possibiliy. With a huge corpus, the performance of Stupid Backoff implementation will show a similar prediction accuracy with the Kneser-Ney Smoothing. The main function code is shown in the RMD document's code chunk.
+
+```{r echo=FALSE}
+predict0 <-function(input,badwords,unigramDF, bigramDF, trigramDF, maxResults = 3) {
+        sw <- stopwords(kind = "en")
+        input <- removePunctuation(input)
+        input <- removeNumbers(input)
+        input <- rev(unlist(strsplit(input," ")))
+        input <- setdiff(input,sw)
+        input <- input[grepl('[[:alpha:]]',input)]
+        input <- paste(input[2],input[1],sep = ' ')
+        input <- tolower(input) 
+        if(input == ''|input == "na na") return('Warning: Just input something')
+        
+        seektri<-grepl(paste0("^",input,"$"),trigramDF$bigram)
+        subtri<-trigramDF[seektri,]
+        input2 <- unlist(strsplit(input," "))[2]
+        seekbi <- grepl(paste0("^",input2,"$"),bigramDF$unigram)
+        subbi <- bigramDF[seekbi,]
+        unigramDF$s <- unigramDF$freq/nrow(unigramDF)*0.16
+        useuni <- unigramDF[order(unigramDF$s,decreasing = T),]
+        useunia <- useuni[1:maxResults,]
+        
+        if (sum(seektri) == 0) {
+                if(sum(seekbi)==0){
+                        return(head(unigramDF[order(unigramDF$freq,decreasing = T),1],
+                                    maxResults))
+                }
+                subbi$s <- 0.4*subbi$freq/sum(seekbi)
+                names <- c(subbi$name,useunia$unigram)
+                score <- c(subbi$s,useunia$s)
+                predictWord <- data.frame(next_word=names,score=score,stringsAsFactors = F)
+                predictWord <- predictWord[order(predictWord$score,decreasing = T),]
+                # in case replicated
+                final <- unique(predictWord$next_word)
+                final <- setdiff(final,badwords)
+                final <- final[grepl('[[:alpha:]]',final)]
+                return(final[1:maxResults])
+        } 
+        subbi$s <- 0.4*subbi$freq/sum(seekbi)
+        subtri$s <- subtri$freq/sum(subtri$freq)
+        names <- c(subtri$name,subbi$name,useunia$unigram)
+        score <- c(subtri$s,subbi$s,useunia$s)
+        predictWord <- data.frame(next_word=names,score=score,stringsAsFactors = F)
+        predictWord <- predictWord[order(predictWord$score,decreasing = T),]
+        # in case replicated
+        final <- unique(predictWord$next_word)
+        final <- final[1:maxResults]
+        final <- setdiff(final,badwords)
+        final <- final[grepl('[[:alpha:]]',final)]        
+        return(final)
+}
+
+
+```
+
+# Prediction
+
+Well, though I spent a lot of time understanding the algorithms in the model, the performance of the final models were still poor in the course quiz. I tried to write a function to test the model on the test set but I can't find a fair way to show the results. The model works fine with common terms while bad on unusual terms. I thought the main reason is that I only use a small part of the documents to build my model and the model is underfit. However, I suggest the reader to try it on the [web app](https://yufree.shinyapps.io/nlpshiny/) and a subjective feeling might be "objective" in this kind of model.
+
+# Summary
+
+- The data were really BIG for PC
+- Intuition could help exploratory analysis
+- Data clean should not remove the signals from noises
+- N-grams could be get by a threshold using big data
+- Back-off and smoothing is necessary
+- Kneser-Ney Smoothing is slower than Stupid Backoff Implementation 
+- Next word prediction is a more subjective model relying on the corpus
+- Pre-classification might help to get a local best prediction
+- Google is REALLY an important tool for data scientist
+- this capstone project's topic is totally new to me and I am looking foreword to hearing from you
+
+## References
+
+- Körner, M. C. (n.d.). Implementation of Modified Kneser-Ney Smoothing on Top of Generalized Language Models for Next Word Prediction Bachelorarbeit, (September 2013).
+- Williams, G. (2014). Data Science with R Text Mining.
+- [Coursera Discussion Board](https://class.coursera.org/dsscapstone-001/forum)

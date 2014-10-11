@@ -82,6 +82,7 @@ predictKN <- function(input,unigramDF,bigramDF,trigramDF,maxResults = 3){
         # process the words
         
         sw <- stopwords(kind = "en")
+        badwords <- readLines('badword.txt')
         input <- removePunctuation(input)
         input <- removeNumbers(input)
         input <- rev(unlist(strsplit(input," ")))
