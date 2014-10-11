@@ -1,0 +1,68 @@
+---
+title: "Classification"
+author: "Miao YU"
+date: "2014年9月24日"
+output: html_document
+---
+
+```{r}
+library(tm)
+library(stringi)
+library(slam)
+ent <- readLines('data/final/en_US/en_US.twitter.txt', encoding = 'UTF-8')
+enn <- readLines('data/final/en_US/en_US.news.txt', encoding = 'UTF-8')
+enb <- readLines('data/final/en_US/en_US.blogs.txt', encoding = 'UTF-8')
+set.seed(1)
+index <- sample(1:length(ent),10000)
+subenttr <- ent[index]
+subentts <- ent[-index]
+subentts <- subentts[index]
+set.seed(1)
+index <- sample(1:length(enn),10000)
+subenntr <- enn[index]
+subennts <- enn[-index]
+subennts <- subennts[index]
+set.seed(1)
+index <- sample(1:length(enb),10000)
+subenbtr <- enb[index]
+subenbts <- enb[-index]
+subenbts <- subenbts[index]
+
+ascllenttr <- stri_enc_toascii(subenttr)
+ascllenttr <- stri_replace_all_regex(ascllenttr,'\032','')
+ascllentts <- stri_enc_toascii(subentts)
+ascllentts <- stri_replace_all_regex(ascllentts,'\032','')
+
+ascllenntr <- stri_enc_toascii(subenntr)
+ascllenntr <- stri_replace_all_regex(ascllenntr,'\032','')
+ascllennts <- stri_enc_toascii(subennts)
+ascllennts <- stri_replace_all_regex(ascllennts,'\032','')
+
+ascllenbtr <- stri_enc_toascii(subenbtr)
+ascllenbtr <- stri_replace_all_regex(ascllenbtr,'\032','')
+ascllenbts <- stri_enc_toascii(subenbts)
+ascllenbts <- stri_replace_all_regex(ascllenbts,'\032','')
+
+test <- VectorSource(c(ascllenttr,ascllenntr,ascllenbtr))
+en <- Corpus(test)
+
+enall <- tm_map(en, content_transformer(tolower))
+enall <- tm_map(enall, removePunctuation)
+enall <- tm_map(enall, removeNumbers)
+enall <- tm_map(enall, removeWords, stopwords("english"))
+enall <- tm_map(enall, stemDocument,language = ("english"))
+enall <- tm_map(enall, stripWhitespace)
+
+ctrl <- list(tokenize = words, bounds = list(global = c(1000,Inf)))
+enall.dtm <- DocumentTermMatrix(enall, control = ctrl)
+classvec <- factor(c(rep('twitter',10000),rep('news',10000),rep('blogs',10000)))
+
+library(Matrix)
+library(SparseM)
+library(e1071)
+
+svm_model <- svm(enall.dtm, classvec)
+classpre <- predict(svm_model,enall.dtm)
+table(classpre,classvec)
+```
+

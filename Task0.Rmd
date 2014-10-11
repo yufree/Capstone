@@ -1,0 +1,132 @@
+---
+title: "Understanding the problem"
+author: "Miao"
+date: "2014年8月26日"
+output: html_document
+---
+
+# Download the Dataset
+
+## Create folder
+
+```{r CF}
+if (!file.exists("data")) {
+    dir.create("data")
+}
+```
+
+## Download the dataset
+
+```{r DL,cache=TRUE}
+fileUrl <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+download.file(fileUrl, destfile = "./data/CS.zip", method = "curl")
+list.files("./data")
+dateDownloaded <- date()
+```
+
+## Unzip the data
+
+```{r UZ,cache=TRUE}
+unzip('data//CS.zip',exdir='data/')
+list.files('data/final/')
+list.files('data/final//en_US')
+```
+
+## Import the data
+
+```{r import}
+
+# scan first 5 lines
+
+readLines('data/final/en_US/en_US.twitter.txt',5)
+readLines('data/final/en_US/en_US.news.txt',5)
+readLines('data/final/en_US/en_US.blogs.txt',5)
+
+# read in the data
+
+ent <- readLines('data/final/en_US/en_US.twitter.txt', encoding = 'UTF-8')
+enn <- readLines('data/final/en_US/en_US.news.txt', encoding = 'UTF-8')
+enb <- readLines('data/final/en_US/en_US.blogs.txt', encoding = 'UTF-8')
+
+# change into words
+
+enwt <- strsplit(ent, " ")
+enwn <- strsplit(enn, " ")
+enwb <- strsplit(enb, " ")
+```
+
+## Desprictive the Data
+
+```{r des}
+# count the data
+library(stringr)
+countt <- str_length(ent)
+countn <- str_length(enn)
+countb <- str_length(enb)
+
+# love & hate
+
+length(grep('love', ent))
+length(grep('hate', ent))
+
+# biostats
+
+ent[grep('biostats', ent)]
+
+# A computer once beat me at chess, but it was no match for me at kickboxing
+
+length(grep('A computer once beat me at chess, but it was no match for me at kickboxing', ent))
+```
+
+Just use bash is enough.
+
+```{shell bash}
+cd ./Capstone/data/final/en_US/
+# count the data
+ls -alh 
+# find the lenghth of the text
+wc -l en_US.twitter.txt
+# find the longest word in the text
+wc -L en_US.twitter.txt
+# count the word in the text
+grep "love" en_US.twitter | wc -l 
+grep "hate" en_US.twitter | wc -l
+bc
+# get the line -i ignore case
+grep -i "biostat" en_US.twitter.txt
+# get the right exact characters
+grep -x "A computer once beat me at chess, but it was no match for me at kickboxing" en_US.twitter.txt | wc -l
+```
+
+# Questions
+
+## What do the data look like?
+
+The data look like containing 3 parts: twitter, news and blogs.
+
+## Where do the data come from?
+
+The data came from the HC Corpora (www.corpora.heliohost.org)
+
+## Can you think of any other data sources that might help you in this project?
+
+http://ufal.mff.cuni.cz/mlnlpr13
+
+## What are the common steps in natural language processing?
+
+step 1: Get corpus
+step 2: Tokenization
+step 3: Understanding the distribution of words and relationship between the words in the corpora
+step 4: Build the model
+step 5: veritfy the model
+
+## What are some common issues in the analysis of text data?
+
+corpus meaning
+filter
+relationship explore
+surpvised learning
+
+## What is the relationship between NLP and the concepts you have learned in the Specialization?
+
+Build a model to class words into meanful groups

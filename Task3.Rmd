@@ -1,0 +1,78 @@
+---
+title: "Modeling"
+author: "Miao YU"
+date: "2014年9月17日"
+output: html_document
+---
+
+```{r echo = F,warning=FALSE,cache=TRUE}
+load('data/en.RData')
+library(tm)
+enall <- tm_map(en, content_transformer(tolower))
+enall <- tm_map(enall, removePunctuation)
+enall <- tm_map(enall, removeNumbers)
+enall <- tm_map(enall, removeWords, stopwords("english"))
+# enall <- tm_map(enall, stemDocument,language = ("english"))
+enall <- tm_map(enall, stripWhitespace)
+
+ctrl <- list(tokenize = words, bounds = list(global = c(1,Inf)))
+
+options(mc.cores=1)
+
+BigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 2))}
+ctrl2 <- list(tokenize = BigramTokenizer, bounds = list(global = c(1,Inf)))
+
+TrigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 3, max = 3))}
+ctrl3 <- list(tokenize = TrigramTokenizer, bounds = list(global = c(1,Inf)))
+
+# TeragramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 4, max = 4))}
+# ctrl4 <- list(tokenize = TeragramTokenizer, bounds = list(global = c(1,Inf)))
+
+library(slam)
+en.tdm <- TermDocumentMatrix(enall,control = ctrl)
+en.bitdm <- TermDocumentMatrix(enall,control = ctrl2)
+en.tritdm <- TermDocumentMatrix(enall,control = ctrl3)
+# en.teratdm <- TermDocumentMatrix(enall,control = ctrl4)
+
+freq <- rowapply_simple_triplet_matrix(en.tdm,sum)
+freqbi <- rowapply_simple_triplet_matrix(en.bitdm,sum)
+freqtri <- rowapply_simple_triplet_matrix(en.tritdm,sum)
+# freqtera <- rowapply_simple_triplet_matrix(en.teratdm,sum)
+
+```
+
+# Summary the data
+
+```{r cache=TRUE}
+firstname <- sapply(strsplit(names(freqbi), ' '), function(a) a[1])
+secname <- sapply(strsplit(names(freqbi), ' '), function(a) a[2])
+firsttriname <- sapply(strsplit(names(freqtri), ' '),function(a) a[1])
+sectriname <- sapply(strsplit(names(freqtri), ' '),function(a) a[2])
+tritriname <- sapply(strsplit(names(freqtri), ' '),function(a) a[3])
+# firstteraname <- sapply(strsplit(names(freqtera), ' '), function(a) a[1])
+# secteraname <- sapply(strsplit(names(freqtera), ' '), function(a) a[2])
+# triteraname <- sapply(strsplit(names(freqtera), ' '), function(a) a[3])
+# terateraname <- sapply(strsplit(names(freqtera), ' '), function(a) a[4])
+
+length(words1 <- unique(names(freq)))
+length(words2 <- unique(c(secname,firstname)))
+length(words3 <- unique(c(tritriname,sectriname,firsttriname)))
+# length(words4 <- unique(c(terateraname,triteraname,secteraname,firstteraname)))
+length(finalwords3 <- intersect(intersect(words1,words2),words3))
+length(finalwords2 <- intersect(words1,words2))
+
+unigramDF <- data.frame(names(freq),freq,stringsAsFactors = F)
+bigramDF <- data.frame(names(freqbi),freqbi,firstname,secname,stringsAsFactors = F)
+trigramDF <- data.frame(names(freqtri),freqtri,paste(firsttriname,sectriname),tritriname,stringsAsFactors = F)
+# teragramDF <- data.frame(names(freqtera),freqtera,paste(firstteraname,secteraname,triteraname),terateraname,stringsAsFactors = F)
+
+names(unigramDF) <- c('unigram','freq')
+names(bigramDF) <- c('bigram','freq','unigram','name')
+names(trigramDF) <- c('trigram','freq','bigram','name')
+names(teragramDF) <- c('teragram','freq','trigram','name')
+
+source('model.R')
+
+predict('in the')
+```
+

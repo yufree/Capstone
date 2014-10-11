@@ -1,0 +1,129 @@
+---
+title: "The milestone report"
+author: "Miao YU"
+date: "2014/09/17"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Introduction
+
+Portable office actually means the works done on the cellphone and the tablet and we need input system to saving our time on typing on them. So a smart and efficient keyboard is required and the core of this input system is a predictive text model. This milestone report is focused on this model, covering the very beginning, namely data collection, to exploratory analysis of the data set.
+
+# Data Collection
+
+The data were downloaded from the course website (from [HC Corpora](www.corpora.heliohost.org)) and unzipped to extract the English database as a corpus. Three text documents from the twitter, blog and news were found with each line standing for a message.
+
+# Data Pre-Summary
+
+After scan the three documents with `bash`, I found the following features:
+
+- the basic summary of the data set is shown as follows:
+
+```{r axis = T,echo = F,cache=TRUE}
+library(knitr)
+twitter <- system('wc -lwm data/final/en_US/en_US.twitter.txt',intern = T)
+news <- system('wc -lwm data/final/en_US/en_US.news.txt',intern = T)
+blogs <- system('wc -lwm data/final/en_US/en_US.blogs.txt',intern = T)
+ten <- as.numeric(grep('[[:digit:]]', unlist(strsplit(twitter," ")), value = T))
+nen <- as.numeric(grep('[[:digit:]]', unlist(strsplit(news," ")), value = T))
+ben <- as.numeric(grep('[[:digit:]]', unlist(strsplit(blogs," ")), value = T))
+en <- as.data.frame(rbind(ten,nen,ben))
+rownames(en) <- c('twitter','news','blogs')
+colnames(en) <- c('line counts','word counts','document size')
+kable(en, align='c', caption = "Summary of the datasets")
+```
+
+- twitter is short(of course less than 140) with a lot of informal characters and less grammar, which means more noise
+- news is written in a formal manner but the topics is focused
+- blog's style is between the twitter and news with less noise and more topics
+- the average length of each lines in the three database: blog > news > twitter, which means blog is the longest document class and longer document will help to build a better model for prediction in certain context
+
+So, the blog data will be good for us to build a model if those three document is too large to be loaded for exploring. However, using sampling will ease the burden on the calculation and finally I sampled 30,000 20,000 and 10,000 lines with seed from the blogs, news and twitter database for exploring and training a model and the left data will be sampled to make the test data sets.
+
+```{r echo = F,cache=TRUE,warning=FALSE}
+library(tm)
+library(stringi)
+ent <- readLines('data/final/en_US/en_US.twitter.txt', encoding = 'UTF-8')
+enn <- readLines('data/final/en_US/en_US.news.txt', encoding = 'UTF-8')
+enb <- readLines('data/final/en_US/en_US.blogs.txt', encoding = 'UTF-8')
+set.seed(1)
+subent <- ent[sample(1:length(ent),10000)]
+set.seed(1)
+subenn <- enn[sample(1:length(enn),20000)]
+set.seed(1)
+subenb <- enb[sample(1:length(enb),30000)]
+suben <- c(subent,subenn,subenb)
+rm(enb,enn,ent,subenb,subenn,subent)
+```
+
+# Tokenization
+
+The whole tokenization is aiming at removing meaningless characters and the words with low frequency in the corpus. The final corpus will show the words  or n-gram with a high frequency which will be helpful for exploring the relationship between the words and building a manful statistical model.
+
+So, I extracted 1)the ASCII characters, 2)change the capital characters to lower case, 3)remove the punctuation, 4)numbers and 5)stop words and 6)stemming the left words. To decrease the spares of the term frequency, I removed the terms occurred less than ten times in the whole document to get the final corpus. 
+
+```{r echo=F,cache=TRUE}
+ascllen <- stri_enc_toascii(suben)
+ascllen <- stri_replace_all_regex(ascllen,'\032','')
+en <- Corpus(VectorSource(ascllen))
+
+enall <- tm_map(en, content_transformer(tolower))
+enall <- tm_map(enall, removePunctuation)
+enall <- tm_map(enall, removeNumbers)
+enall <- tm_map(enall, removeWords, stopwords("english"))
+enall <- tm_map(enall, stemDocument,language = ("english"))
+enall <- tm_map(enall, stripWhitespace)
+
+# url <- 'http://www-personal.umich.edu/~jlawler/wordlist'
+# dic <- download.file(url,'data/dic.txt', method = 'curl')
+# dic <- readLines('data/dic.txt', encoding = 'UTF-8')
+
+ctrl <- list(tokenize = words, bounds = list(global = c(10,Inf)))
+
+options(mc.cores=1)
+
+BigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 2))}
+ctrl2 <- list(tokenize = BigramTokenizer, bounds = list(global = c(10,Inf)))
+
+TrigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 3, max = 3))}
+ctrl3 <- list(tokenize = TrigramTokenizer, bounds = list(global = c(10,Inf)))
+
+# TeragramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 4, max = 4))}
+# ctrl4 <- list(tokenize = TeragramTokenizer, bounds = list(global = c(10,Inf)))
+
+Tokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 1, max = 3))}
+ctrl0 <- list(tokenize = Tokenizer, bounds = list(global = c(10,Inf)))
+
+library(slam)
+en.tdm <- TermDocumentMatrix(enall,control = ctrl)
+en.bitdm <- TermDocumentMatrix(enall,control = ctrl2)
+en.tritdm <- TermDocumentMatrix(enall,control = ctrl3)
+# en.teratdm <- TermDocumentMatrix(enall,control = ctrl4)
+en.tdm0 <- TermDocumentMatrix(enall,control = ctrl0)
+
+freq <- rowapply_simple_triplet_matrix(en.tdm,sum)
+freqbi <- rowapply_simple_triplet_matrix(en.bitdm,sum)
+freqtri <- rowapply_simple_triplet_matrix(en.tritdm,sum)
+# freqtera <- rowapply_simple_triplet_matrix(en.teratdm,sum)
+freq0 <- rowapply_simple_triplet_matrix(en.tdm0,sum)
+```
+
+# Exploratory analysis
+
+To build a n-gram model, I extracted n-gram corpus with the help of `RWeka` package. The uni gram terms corpus has `r length(en.tdm$dimnames$Terms)` words, the bi gram corpus has `r length(en.bitdm$dimnames$Terms)` terms and the tri gram corpus has `r length(en.tritdm$dimnames$Terms)` terms. Then I explored three corpus(uni gram, bi gram and tri gram) and made a histogram to show the distribution of the terms in them. 
+
+```{r,cache=TRUE,echo=FALSE,warning=FALSE,message=FALSE}
+par(oma=c(0,0,3,0),mfrow = c(2,2), mar=c(2,2,2,2))
+hist(log(freq), breaks = 50, main = 'uni gram corpus', xlab='the log value of the Frequency', ylab='')
+hist(log(freqbi), breaks = 50, main = 'bi gram corpus', xlab='the log value of the Frequency', ylab='')
+hist(log(freqtri), breaks = 50, main = 'tri gram corpus', xlab='the log value of the Frequency', ylab='')
+library(wordcloud)
+wordcloud(names(freq0), freq0, min.freq = 400)
+title("Figure 1: Histogram of term frequency and word cloud of all of the three corpus",outer=T)
+```
+
+As shown in Figure 1, the logged frequencies in all of the three corpus were still skewed to the left, which mean the sparse of the terms data. So I think it will be hard to build a good generation regression model but local regression would be OK. Also I found only 8063 words occurred more than ten times in the sampled documents compared with nearly 70 thousand words in an online [dictionary](http://www-personal.umich.edu/~jlawler/wordlist), which mean focused on little words would work in most of the prediction. The word cloud showed the terms occurred more than 400 and those terms would be good to build a classification filter models before using a n-gram model to speed up the whole prediction.
+
+OK, the exploratory analysis has inspired some features about the final produce: **hierarchical local regression model**.

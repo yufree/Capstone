@@ -1,0 +1,90 @@
+---
+title: "Data acquisition and cleaning"
+author: "Miao"
+date: "2014年9月2日"
+output: html_document
+---
+
+# Read in the data
+
+```{r import}
+enb <- readLines('data/final/en_US/en_US.blogs.txt', encoding = 'UTF-8')
+```
+
+# Tokenization
+
+```{r Token}
+Token <- function(text){
+        text <- readLines(text, encoding = 'UTF-8')
+        text <- unlist(sapply(text,strsplit,'[[:space:]]+'))
+        return(text)
+}
+TokenWords <- function(text){
+        text <- readLines(text, encoding = 'UTF-8')
+        text <- stringr::str_extract_all(text,'[[:alpha:]]+')
+        text <- unlist(sapply(text,strsplit,'[[:space:]]+'))
+        return(text)
+}
+
+TokenPunct <- function(text){
+        text <- readLines(text, encoding = 'UTF-8')
+        text <- stringr::str_extract_all(text,'[[:punct:]]+')
+        text <- unlist(sapply(text,strsplit,'[[:space:]]+'))
+        return(text)
+}
+
+TokenNum <- function(text){
+        text <- readLines(text, encoding = 'UTF-8')
+        text <- stringr::str_extract_all(text,'[[:digit:]]+')
+        text <- unlist(sapply(text,strsplit,'[[:space:]]+'))
+        return(text)
+}
+```
+
+# Questions
+
+## How should you handle punctuation?
+
+I think the best way is just remove them.
+
+## The data contains lots of times, dates, numbers and currency values. How to handle these? Are they useful for prediction?
+
+Those words were mostly a fact which is independent from the content and I think they are useless for prediction.
+
+## How do you find typos in the data?
+
+Here a dictionary may help. 
+
+```{r}
+filterdic <- function(text,dic){
+        result <- text[text %in% dic]
+        return(result)
+}
+```
+
+## How do you identify garbage, or the wrong language?
+
+Maybe the dictionary will solve this kind of problem, too. Or a white list.
+
+## How do you define profanity? How do you ensure you don't remove words you want to include?
+
+Firstly, we need a badword list from this [link](http://urbanoalvarez.es/blog/2008/04/04/bad-words-list/) or this [repo](https://github.com/shutterstock/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words). Then a filter will do.
+
+```{r}
+url <- 'https://raw.githubusercontent.com/shutterstock/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en'
+badwords <- download.file(url,'data/badword.txt', method = 'curl')
+badwords <- readLines('data/badword.txt', encoding = 'UTF-8')
+filterdic <- function(text,dic){
+        result <- text[!text %in% dic]
+        return(result)
+}
+filterdic(text,badwords)
+```
+
+## How do you handle capital and lower cases?
+
+`R tolower(text)` is enough.
+
+## What is the best set of features you might use to predict the next word?
+
+The former 2 or 3 words and the proper classed corpus.

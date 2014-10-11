@@ -1,0 +1,82 @@
+---
+title: "Exploratory analysis"
+author: "Miao"
+date: "2014年9月8日"
+output: html_document
+---
+
+# Read in the data by tm package and subset the data
+
+```{r import}
+library(tm)
+library(stringi)
+enb <- stri_read_lines('data/final/en_US/en_US.blogs.txt',locale = "en")
+lowerenb <- stri_trans_tolower(enb)
+lowerenb <- stri_enc_toascii(lowerenb)
+lowerenb <- stri_replace_all_regex(lowerenb,'\032','')
+# enwords <- stri_extract_words(lowerenb, locale = "en")
+# punctenb <- stri_replace_all_regex(lowerenb,'[[:punct:]]+',' ')
+# numbenb <- stri_replace_all_regex(punctenb,'[[:digit:]]+',' ')
+# spaceenb <- stri_replace_all_regex(numbenb,'[[:space:]]+',' ')
+
+index <- sample(1:length(lowerenb),100000)
+subenb <- lowerenb[index]
+# enb.vec <- VectorSource(subenb)
+enb.vec <- VectorSource(lowerenb)
+enb <- Corpus(enb.vec)
+# summary(enb.corpus)
+# endir <- DirSource('data/final/en_US',encoding = 'UTF-8')
+# en <- Corpus(endir)
+# enb <- en[1]
+```
+
+# Tokenization
+
+```{r}
+# enblog <- tm_map(enb, content_transformer(tolower))
+enblog <- tm_map(enb, removePunctuation)
+enblog <- tm_map(enblog, removeNumbers)
+enblog <- tm_map(enblog, removeWords, stopwords("english"))
+enblog <- tm_map(enblog, stemDocument,language = ("english"))
+enblog <- tm_map(enblog, stripWhitespace)
+save(enblog,file='data/enblog.RData')
+# writeCorpus(enblog,'data/')
+```
+
+# explore the data
+
+```{r}
+# for (i in 1:length(enblog)) meta(enblog[[i]], tag="Tset") <- "test"
+# for (i in 1:length(enblog)) meta(enblog[[sample(1:length(enblog),)]], tag="Tset") <- "train"
+enblog.tdm <- TermDocumentMatrix(enblog)
+save(enblog.tdm,file='data/enblog.tdm.RData')
+# findAssocs(enblog.tdm, "usa",.5)
+# findFreqTerms(enblog.tdm, 100)
+# BigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 2))}
+# tdm <- TermDocumentMatrix(enblog, control = list(tokenize = BigramTokenizer))
+options(mc.cores=1)
+TrigramTokenizer <- function(x) {RWeka::NGramTokenizer(x, RWeka::Weka_control(min = 2, max = 4))}
+tridm <- TermDocumentMatrix(enblog, control = list(tokenize = TrigramTokenizer))
+save(tridm,file='data/tridm.RData')
+tridm9 <- removeSparseTerms(tridm, 0.9)
+tridm99 <- removeSparseTerms(tridm, 0.99)
+tridm999 <- removeSparseTerms(tridm, 0.999)
+tridm9999 <- removeSparseTerms(tridm, 0.9999)
+tridm99999 <- removeSparseTerms(tridm, 0.99999)
+
+library(slam)
+freqall <- rowapply_simple_triplet_matrix(tridm,sum)
+freq <- rowapply_simple_triplet_matrix(tridm99999,sum)
+hist(log(freq),breaks=100)
+save(freq,file='data/freq.RData')
+freq[grepl('good',names(freq))]
+plot(tridm9999, terms = findFreqTerms(tridm9999, lowfreq = 200), corThreshold = 0.5)
+
+inspect(tdm[1:5,1:5])
+TDM.common = removeSparseTerms(enblog.tdm, 0.20)
+library(wordcloud)
+m = as.matrix(TDM.common)
+v = sort(rowSums(m), decreasing = TRUE)
+wordcloud(names(v), v, min.freq = 5000)
+```
+
